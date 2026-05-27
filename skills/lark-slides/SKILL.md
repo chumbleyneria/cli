@@ -19,6 +19,7 @@ metadata:
 | 编辑单个标题、文本块、图片或局部元素 | 优先块级替换/插入，不改页序 | `slides +replace-slide`、`lark-slides-replace-slide.md` |
 | 读取或分析已有 PPT | 解析 slides/wiki token，回读全文或单页 XML，保存 `xml_presentation_id`、`slide_id`、`revision_id` | `xml_presentations.get`、`xml_presentation.slide.get` |
 | 上传或使用图片 | 先上传为 `file_token`，禁止直接写 http(s) 外链 | `slides +media-upload`，或 `+create --slides` 的 `@./path` 占位符 |
+| 使用语义图标 | 先检索 IconPark，再写 `<icon iconType="...">` | `iconpark_tool.py search → resolve`、`iconpark.md` |
 | 用户提到模板、主题、版式 | 先检索模板，再摘要，必要时裁切骨架 | `template_tool.py search → summarize → extract` |
 | 创建失败、空白页、3350001、布局异常 | 先回读状态，再按排障清单修复，不假设原操作原子成功 | `troubleshooting.md`、`validation-checklist.md` |
 
@@ -80,6 +81,7 @@ lark-cli auth login --domain slides
 - 创建：[`lark-slides-create.md`](references/lark-slides-create.md)
 - 编辑：[`lark-slides-edit-workflows.md`](references/lark-slides-edit-workflows.md)、[`lark-slides-replace-slide.md`](references/lark-slides-replace-slide.md)
 - 图片：[`lark-slides-media-upload.md`](references/lark-slides-media-upload.md)
+- 图标：[`iconpark.md`](references/iconpark.md)、[`scripts/iconpark_tool.py`](scripts/iconpark_tool.py)
 - 模板：[`template-catalog.md`](references/template-catalog.md)、[`scripts/template_tool.py`](scripts/template_tool.py)
 - 排障：[`troubleshooting.md`](references/troubleshooting.md)
 - 完整协议：[`slides_xml_schema_definition.xml`](references/slides_xml_schema_definition.xml)
