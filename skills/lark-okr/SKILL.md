@@ -1,7 +1,7 @@
 ---
 name: lark-okr
 version: 1.0.0
-description: "飞书 OKR：管理目标与关键结果。查看和编辑 OKR 周期、目标（Objective）、关键结果（Key Result）、对齐关系、量化指标和进展记录。当用户需要查看或创建 OKR、管理目标和关键结果、查看对齐关系时使用。"
+description: "飞书 OKR：管理目标与关键结果。查看和编辑 OKR 周期、目标、关键结果、对齐关系、量化指标和进展记录。当用户需要查看或创建 OKR、管理目标和关键结果、查看对齐关系时使用。"
 metadata:
   requires:
     bins: [ "lark-cli" ]
@@ -35,12 +35,6 @@ Shortcut 是对常用操作的高级封装（`lark-cli okr +<verb> [flags]`）�
 
 ## API Resources
 
-```bash
-lark-cli schema okr.<resource>.<method>   # 调用 API 前必须先查看参数结构
-lark-cli okr <resource> <method> [flags] # 调用 API
-```
-
-> **重要**：使用原生 API 时，**必须**先运行 `schema` 查看 `--data` / `--params` 参数结构，**不要**猜测字段格式！
 
 ### alignments
 
@@ -58,6 +52,16 @@ lark-cli okr <resource> <method> [flags] # 调用 API
     - 请求中必须同时修改对应周期下全部目标的位置，且不允许位置重叠，否则会参数校验失败。
 - `objectives_weight` — 更新用户周期下全部目标的权重
     - 请求中必须同时修改对应周期下全部目标的权重，且所有权重值的和必须等于 1 ，否则会参数校验失败。
+    - 前提说明：假设该周期下有 2 个目标：obj_xxx 和 obj_yyy
+    - GOOD 示例：
+      ```json
+      {
+        "objective_weights": [
+          { "objective_id": "obj_xxx", "weight": 0.6 },
+          { "objective_id": "obj_yyy", "weight": 0.4 }
+        ]
+      }
+      ```
 
 ### cycle.objectives
 
@@ -103,31 +107,9 @@ lark-cli okr <resource> <method> [flags] # 调用 API
 - `create` — 创建关键结果
 - `list` — 批量获取目标下的关键结果
 
-## 权限表
+## 不在本 skill 范围
 
-| 方法                                | 所需 scope                    |
-|-----------------------------------|-----------------------------|
-| `alignments.delete`               | `okr:okr.content:writeonly` |
-| `alignments.get`                  | `okr:okr.content:readonly`  |
-| `categories.list`                 | `okr:okr.setting:read`      |
-| `cycles.list`                     | `okr:okr.period:readonly`   |
-| `cycles.objectives_position`      | `okr:okr.content:writeonly` |
-| `cycles.objectives_weight`        | `okr:okr.content:writeonly` |
-| `cycle.objectives.create`         | `okr:okr.content:writeonly` |
-| `cycle.objectives.list`           | `okr:okr.content:readonly`  |
-| `indicators.patch`                | `okr:okr.content:writeonly` |
-| `key_results.delete`              | `okr:okr.content:writeonly` |
-| `key_results.get`                 | `okr:okr.content:readonly`  |
-| `key_results.patch`               | `okr:okr.content:writeonly` |
-| `key_result.indicators.list`      | `okr:okr.content:readonly`  |
-| `objectives.delete`               | `okr:okr.content:writeonly` |
-| `objectives.get`                  | `okr:okr.content:readonly`  |
-| `objectives.key_results_position` | `okr:okr.content:writeonly` |
-| `objectives.key_results_weight`   | `okr:okr.content:writeonly` |
-| `objectives.patch`                | `okr:okr.content:writeonly` |
-| `objective.alignments.create`     | `okr:okr.content:writeonly` |
-| `objective.alignments.list`       | `okr:okr.content:readonly`  |
-| `objective.indicators.list`       | `okr:okr.content:readonly`  |
-| `objective.key_results.create`    | `okr:okr.content:writeonly` |
-| `objective.key_results.list`      | `okr:okr.content:readonly`  |
+- OKR 审批流程 → 通过 [`lark-openapi-explorer`](../lark-openapi-explorer/SKILL.md) 查找原生接口
+- 组织架构级 OKR 统计分析 → 通过 [`lark-openapi-explorer`](../lark-openapi-explorer/SKILL.md) 查找原生接口
+
 
