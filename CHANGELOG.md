@@ -2,6 +2,47 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v1.0.46] - 2026-06-02
+
+### Features
+
+- **im**: Add card message format support (#1218)
+- **im**: Resolve markdown blank-line formatting inconsistency in post messages (#1216)
+- **vc**: Inline transcript from artifacts API and add keywords (#1206)
+- **transport**: Add proxy plugin mode for CLI HTTP transport (#1181)
+- **agent**: Increase agent trace max length to 1024 (#1211)
+- **shortcuts**: Unconditionally inject `--format` flag for all shortcuts (#1156)
+
+### Bug Fixes
+
+- **cli**: Remove FLAGS section from root `--help` (#1226)
+- **cli**: Stop root `--help` listing per-command flags as global (#1223)
+
+### Refactor
+
+- **transport**: Own all HTTP transport in `internal/transport`, fix util layering inversion (#1213)
+
+### Documentation
+
+- **base**: Optimize base skill references (#1171)
+- **drive**: Add Lark Drive knowledge organization workflow (#1028)
+
+## [v1.0.45] - 2026-06-01
+
+### Features
+
+- **errors**: Add typed envelope contract for auth-domain errors (#1135)
+- **platform**: Support multiple policy rules per plugin (#1182)
+
+### Bug Fixes
+
+- **vc**: Add domain boundaries and enrich `+notes` (#1172)
+- **whiteboard**: Fix whiteboard skill (#1180)
+
+### Refactor
+
+- **auth**: Update login hint and split-flow docs (#1201)
+
 ## [v1.0.44] - 2026-05-29
 
 ### Features
@@ -948,6 +989,8 @@ Bundled AI agent skills for intelligent assistance:
 - Bilingual documentation (English & Chinese).
 - CI/CD pipelines: linting, testing, coverage reporting, and automated releases.
 
+[v1.0.46]: https://github.com/larksuite/cli/releases/tag/v1.0.46
+[v1.0.45]: https://github.com/larksuite/cli/releases/tag/v1.0.45
 [v1.0.44]: https://github.com/larksuite/cli/releases/tag/v1.0.44
 [v1.0.43]: https://github.com/larksuite/cli/releases/tag/v1.0.43
 [v1.0.42]: https://github.com/larksuite/cli/releases/tag/v1.0.42
