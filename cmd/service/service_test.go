@@ -766,3 +766,22 @@ func TestDetectFileFields(t *testing.T) {
 		})
 	}
 }
+
+func TestServiceMethod_JsonFlag_Accepted(t *testing.T) {
+	f, _, _, _ := cmdutil.TestFactory(t, testConfig)
+
+	var captured *ServiceMethodOptions
+	cmd := NewCmdServiceMethod(f, driveSpec(),
+		meta.FromMap(map[string]interface{}{"description": "desc", "httpMethod": "GET"}), "list", "files",
+		func(opts *ServiceMethodOptions) error {
+			captured = opts
+			return nil
+		})
+	cmd.SetArgs([]string{"--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("--json should be accepted without error, got: %v", err)
+	}
+	if captured == nil {
+		t.Fatal("expected runF to be called")
+	}
+}
