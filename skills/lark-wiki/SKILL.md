@@ -1,7 +1,7 @@
 ---
 name: lark-wiki
-version: 1.0.0
-description: "飞书知识库：管理知识空间、空间成员和文档节点。创建和查询知识空间、查看和管理空间成员、管理节点层级结构、在知识库中组织文档和快捷方式。当用户需要在知识库中查找或创建文档、浏览知识空间结构、查看或管理空间成员、移动或复制节点时使用。当用户给出 doubao.com 的 /wiki/ URL/token 时，也应直接使用本 skill，不要因为域名不是飞书而回退到 WebFetch；路由依据是 URL 路径模式和 token，而不是域名。"
+version: 1.0.1
+description: "飞书知识库：管理知识空间、空间成员和文档节点。创建和查询知识空间、查看和管理空间成员、管理节点层级结构、在知识库中组织文档和快捷方式。当用户需要在知识库中查找或创建文档、浏览知识空间结构、查看或管理空间成员、移动或复制节点时使用。当用户给出 doubao.com 的 /wiki/ URL/token 时，也应直接使用本 skill，不要因为域名不是飞书而回退到 WebFetch；路由依据是 URL 路径模式和 token，而不是域名。不负责：上传文件到知识库节点下（走 lark-drive 的 drive +upload --wiki-token）、编辑文档/表格/Base 内容（走 lark-doc / lark-sheets / lark-base）。"
 metadata:
   requires:
     bins: ["lark-cli"]
@@ -39,22 +39,16 @@ metadata:
 - 用户说“查看 / 列出空间成员”：用 `wiki +member-list`；该 shortcut 默认只取一页，多成员场景显式加 `--page-all`。
 - 用户说“移除 / 删除空间成员”：用 `wiki +member-remove`，必须传齐原始授予时的 `--member-type` 和 `--member-role`（不知道就先 `wiki +member-list` 查一下）。
 
-## 成员添加流程
+**BAD / GOOD：wiki URL（或空间名称）不是 `space_id`**
 
-- 调用 `lark-cli wiki +member-add` 前，先把自然语言里的“人 / 群 / 部门 / 应用”解析成正确的 `--member-id`，不要猜格式。
-- 用户场景默认优先 `--member-type=openid`：用 `lark-cli contact +search-user --query "<姓名/邮箱/手机号>" --format json` 获取 `open_id`。
-- 群组场景使用 `--member-type=openchat`：用 `lark-cli im +chat-search --query "<群名关键词>" --format json` 获取 `chat_id`。
-- 应用场景使用 `--member-type=appid`：`--member-id` 传应用 ID，格式通常为 `cli_xxx`。
-- `userid` / `unionid` 只在下游明确要求时才使用；先拿到 `open_id`，再调用 `lark-cli api GET /open-apis/contact/v3/users/<open_id> --params '{"user_id_type":"open_id"}' --format json` 读取 `user_id` / `union_id`。
-- 部门场景使用 `--member-type=opendepartmentid`：当前 CLI 没有 shortcut，需调用 `lark-cli api POST /open-apis/contact/v3/departments/search --as user --params '{"department_id_type":"open_department_id"}' --data '{"query":"<部门名>"}'` 获取 `open_department_id`。
-- 只有在目标类型和身份都已确认可行后，才调用 `lark-cli wiki +member-add`。对于部门场景，这意味着必须是 `--as user`。
+```bash
+# BAD：把 wiki URL / 空间名称原样当成 space_id 传入
+lark-cli wiki +delete-space --space-id "https://example.larkoffice.com/wiki/<wiki_token>" --yes
 
-## 目标语义约束
-
-- `我的文档库` / `My Document Library` / `我的知识库` / `个人知识库` / `my_library` 都应视为 **Wiki personal library**，不是 Drive 根目录
-- 处理这类目标时，先解析 `my_library` 对应的真实 `space_id`，再执行 `wiki +move`、`wiki +node-create` 或其他 Wiki 写操作
-- 不要因为缺少显式 `space_id` 就退化成 `drive +move`
-- 如果用户明确说的是 Drive 文件夹、云空间（云盘/云存储）根目录、`我的空间`，才进入 Drive 域处理
+# GOOD：先把 URL 解析成真实 space_id，再执行写操作
+lark-cli wiki spaces get_node --params '{"token":"<wiki_token>"}' --as user --format json   # 读 data.node.space_id
+lark-cli wiki +delete-space --space-id <space_id> --yes
+```
 
 ## Shortcuts（推荐优先使用）
 
@@ -75,14 +69,29 @@ Shortcut 是对常用操作的高级封装（`lark-cli wiki +<verb> [flags]`）�
 | [`+member-remove`](references/lark-wiki-member-remove.md) | Remove a member from a wiki space |
 | [`+member-list`](references/lark-wiki-member-list.md) | List members of a wiki space (supports pagination) |
 
+## 成员添加流程
+
+- 调用 `lark-cli wiki +member-add` 前，先把自然语言里的“人 / 群 / 部门 / 应用”解析成正确的 `--member-id`，不要猜格式。
+- 用户场景默认优先 `--member-type=openid`：用 `lark-cli contact +search-user --query "<姓名/邮箱/手机号>" --format json` 获取 `open_id`。
+- 群组场景使用 `--member-type=openchat`：用 `lark-cli im +chat-search --query "<群名关键词>" --format json` 获取 `chat_id`。
+- 应用场景使用 `--member-type=appid`：`--member-id` 传应用 ID，格式通常为 `cli_xxx`。
+- `userid` / `unionid` 只在下游明确要求时才使用；先拿到 `open_id`，再调用 `lark-cli api GET /open-apis/contact/v3/users/<open_id> --params '{"user_id_type":"open_id"}' --format json` 读取 `user_id` / `union_id`。
+- 部门场景使用 `--member-type=opendepartmentid`：当前 CLI 没有 shortcut，需调用 `lark-cli api POST /open-apis/contact/v3/departments/search --as user --params '{"department_id_type":"open_department_id"}' --data '{"query":"<部门名>"}'` 获取 `open_department_id`。
+- 只有在目标类型和身份都已确认可行后，才调用 `lark-cli wiki +member-add`。对于部门场景，这意味着必须是 `--as user`。
+
+## 目标语义约束
+
+- `我的文档库` / `My Document Library` / `我的知识库` / `个人知识库` / `my_library` 都应视为 **Wiki personal library**，不是 Drive 根目录
+- 处理这类目标时，先解析 `my_library` 对应的真实 `space_id`，再执行 `wiki +move`、`wiki +node-create` 或其他 Wiki 写操作
+- 不要因为缺少显式 `space_id` 就退化成 `drive +move`
+- 如果用户明确说的是 Drive 文件夹、云空间（云盘/云存储）根目录、`我的空间`，才进入 Drive 域处理
+
 ## API Resources
 
 ```bash
-lark-cli schema wiki.<resource>.<method>   # 调用 API 前必须先查看参数结构
-lark-cli wiki <resource> <method> [flags] # 调用 API
+lark-cli schema wiki.<resource>.<method>   # 调用原生 API 前必须先查看 --data / --params 参数结构，不要猜测字段格式
+lark-cli wiki <resource> <method> [flags]  # 调用 API
 ```
-
-> **重要**：使用原生 API 时，必须先运行 `schema` 查看 `--data` / `--params` 参数结构，不要猜测字段格式。
 
 ### spaces
 
@@ -103,18 +112,9 @@ lark-cli wiki <resource> <method> [flags] # 调用 API
 - `create` — 创建知识空间节点
 - `list` — 获取知识空间子节点列表
 
-## 权限表
+## 不在本 skill 范围
 
-| 方法 | 所需 scope |
-|------|-----------|
-| `spaces.create` | `wiki:space:write_only` |
-| `spaces.get` | `wiki:space:read` |
-| `spaces.get_node` | `wiki:node:read` |
-| `spaces.list` | `wiki:space:retrieve` |
-| `members.create` | `wiki:member:create` |
-| `members.delete` | `wiki:member:update` |
-| `members.list` | `wiki:member:retrieve` |
-| `nodes.copy` | `wiki:node:copy` |
-| `nodes.move` | `wiki:node:move` |
-| `nodes.create` | `wiki:node:create` |
-| `nodes.list` | `wiki:node:retrieve` |
+- 上传 / 下载文件到知识库节点下 → [`lark-drive`](../lark-drive/SKILL.md)（`drive +upload --wiki-token`）
+- 编辑文档正文内容 → [`lark-doc`](../lark-doc/SKILL.md)
+- 表格 / 多维表格数据操作 → [`lark-sheets`](../lark-sheets/SKILL.md) / [`lark-base`](../lark-base/SKILL.md)
+- 按名称搜索文档 / Wiki / 表格文件、评论与权限管理 → [`lark-drive`](../lark-drive/SKILL.md)
