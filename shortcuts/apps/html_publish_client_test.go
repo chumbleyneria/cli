@@ -6,16 +6,15 @@ package apps
 import (
 	"bytes"
 	"context"
-	"errors"
 	"mime"
 	"mime/multipart"
 	"strings"
 	"testing"
 
+	"github.com/larksuite/cli/errs"
 	"github.com/larksuite/cli/internal/cmdutil"
 	"github.com/larksuite/cli/internal/core"
 	"github.com/larksuite/cli/internal/httpmock"
-	"github.com/larksuite/cli/internal/output"
 	"github.com/larksuite/cli/shortcuts/common"
 )
 
@@ -94,15 +93,37 @@ func TestAppsHTMLPublishAPI_BusinessErrorHasHint(t *testing.T) {
 	if err == nil {
 		t.Fatalf("expected error")
 	}
-	var exitErr *output.ExitError
-	if !errors.As(err, &exitErr) || exitErr.Detail == nil {
-		t.Fatalf("expected ExitError with detail, got %v", err)
+	problem := requireAppsAPIProblem(t, err)
+	if problem.Code != errCodeBuildFailed {
+		t.Fatalf("code = %d, want %d", problem.Code, errCodeBuildFailed)
 	}
-	if exitErr.Detail.Hint == "" {
+	if problem.Hint == "" {
 		t.Fatalf("expected non-empty hint on code 90001")
 	}
-	if !strings.Contains(exitErr.Detail.Message, "build failed") {
-		t.Fatalf("missing failure message: %v", exitErr.Detail.Message)
+	if !strings.Contains(problem.Message, "build failed") {
+		t.Fatalf("missing failure message: %v", problem.Message)
+	}
+}
+
+func TestAppsHTMLPublishAPI_AppNotFoundClassified(t *testing.T) {
+	rctx, reg := newAppsClientRuntime(t)
+	reg.Register(&httpmock.Stub{
+		Method: "POST",
+		URL:    "/open-apis/spark/v1/apps/app_missing/upload_and_release_html_code",
+		Body: map[string]interface{}{
+			"code": errCodeAppNotFound,
+			"msg":  "app not found",
+		},
+	})
+
+	api := appsHTMLPublishAPI{runtime: rctx}
+	_, err := api.HTMLPublish(context.Background(), "app_missing", &htmlPublishTarball{Body: []byte("fake")})
+	problem := requireAppsAPIProblem(t, err)
+	if problem.Subtype != errs.SubtypeNotFound {
+		t.Fatalf("subtype = %q, want %q", problem.Subtype, errs.SubtypeNotFound)
+	}
+	if problem.Hint == "" {
+		t.Fatalf("expected app-not-found recovery hint")
 	}
 }
 

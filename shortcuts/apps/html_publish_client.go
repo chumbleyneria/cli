@@ -6,13 +6,11 @@ package apps
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 
 	larkcore "github.com/larksuite/oapi-sdk-go/v3/core"
 
-	"github.com/larksuite/cli/internal/output"
 	"github.com/larksuite/cli/internal/validate"
 	"github.com/larksuite/cli/shortcuts/common"
 )
@@ -39,28 +37,14 @@ func (api appsHTMLPublishAPI) HTMLPublish(ctx context.Context, appID string, tar
 		Body:       fd,
 	}, larkcore.WithFileUpload())
 	if err != nil {
-		return nil, err
+		return nil, appsAPIBoundaryError(err)
 	}
-	return parseHTMLPublishResponse(apiResp.RawBody)
-}
-
-func parseHTMLPublishResponse(raw []byte) (*htmlPublishResponse, error) {
-	var envelope struct {
-		Code int    `json:"code"`
-		Msg  string `json:"msg"`
-		Data struct {
-			URL string `json:"url"`
-		} `json:"data"`
+	data, err := api.runtime.ClassifyAPIResponse(apiResp)
+	if err != nil {
+		return nil, enrichHTMLPublishAPIError(err)
 	}
-	if err := json.Unmarshal(raw, &envelope); err != nil {
-		return nil, fmt.Errorf("decode html-publish response: %w", err)
-	}
-	if envelope.Code != 0 {
-		return nil, output.ErrWithHint(output.ExitAPI, "api_error",
-			fmt.Sprintf("html-publish failed (code=%d): %s", envelope.Code, envelope.Msg),
-			buildHTMLPublishFailureHint(envelope.Code))
-	}
-	return &htmlPublishResponse{URL: envelope.Data.URL}, nil
+	url, _ := data["url"].(string)
+	return &htmlPublishResponse{URL: url}, nil
 }
 
 // OAPI business error codes returned by the Miaoda
