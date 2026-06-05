@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -15,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/larksuite/cli/errs"
 	larkevent "github.com/larksuite/oapi-sdk-go/v3/event"
 )
 
@@ -44,6 +46,26 @@ func makeRawEvent(eventType string, eventJSON string) *RawEvent {
 	}
 }
 
+func requireProblem(t *testing.T, err error, category errs.Category, subtype errs.Subtype, param string) {
+	t.Helper()
+	p, ok := errs.ProblemOf(err)
+	if !ok {
+		t.Fatalf("ProblemOf(%T) = false, error: %v", err, err)
+	}
+	if p.Category != category || p.Subtype != subtype {
+		t.Fatalf("problem = %s/%s, want %s/%s", p.Category, p.Subtype, category, subtype)
+	}
+	if param != "" {
+		var ve *errs.ValidationError
+		if !errors.As(err, &ve) {
+			t.Fatalf("error %T is not *errs.ValidationError", err)
+		}
+		if ve.Param != param {
+			t.Fatalf("Param = %q, want %q", ve.Param, param)
+		}
+	}
+}
+
 // --- Registry ---
 
 func TestRegistryLookup(t *testing.T) {
@@ -63,9 +85,11 @@ func TestRegistryDuplicateReturnsError(t *testing.T) {
 	if err := r.Register(&ImMessageProcessor{}); err != nil {
 		t.Fatalf("first register should succeed: %v", err)
 	}
-	if err := r.Register(&ImMessageProcessor{}); err == nil {
+	err := r.Register(&ImMessageProcessor{})
+	if err == nil {
 		t.Error("expected error on duplicate registration")
 	}
+	requireProblem(t, err, errs.CategoryInternal, errs.SubtypeUnknown, "")
 }
 
 // --- Filters ---
@@ -339,6 +363,23 @@ func TestPipeline_OutputDir(t *testing.T) {
 	}
 }
 
+func TestPipeline_EnsureDirsFileIOError(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "not-a-dir")
+	if err := os.WriteFile(path, []byte("x"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	p := NewEventPipeline(DefaultRegistry(), NewFilterChain(),
+		PipelineConfig{Mode: TransformCompact, OutputDir: filepath.Join(path, "child")}, io.Discard, io.Discard)
+	err := p.EnsureDirs()
+	if err == nil {
+		t.Fatal("expected file_io error")
+	}
+	requireProblem(t, err, errs.CategoryInternal, errs.SubtypeFileIO, "")
+	if errors.Unwrap(err) == nil {
+		t.Fatal("file_io error should preserve its cause")
+	}
+}
+
 // --- Pipeline: JsonFlag ---
 
 func TestPipeline_JsonFlag(t *testing.T) {
@@ -608,12 +649,17 @@ func TestParseRoutes_MissingEquals(t *testing.T) {
 	if err == nil {
 		t.Error("expected error for missing =")
 	}
+	requireProblem(t, err, errs.CategoryValidation, errs.SubtypeInvalidArgument, "--route")
 }
 
 func TestParseRoutes_InvalidRegex(t *testing.T) {
 	_, err := ParseRoutes([]string{"[invalid=dir:./foo/"})
 	if err == nil {
 		t.Error("expected error for invalid regex")
+	}
+	requireProblem(t, err, errs.CategoryValidation, errs.SubtypeInvalidArgument, "--route")
+	if errors.Unwrap(err) == nil {
+		t.Fatal("invalid regex error should preserve its cause")
 	}
 }
 
@@ -622,6 +668,7 @@ func TestParseRoutes_MissingPrefix(t *testing.T) {
 	if err == nil {
 		t.Error("expected error for missing dir: prefix")
 	}
+	requireProblem(t, err, errs.CategoryValidation, errs.SubtypeInvalidArgument, "--route")
 	if !strings.Contains(err.Error(), "dir:") {
 		t.Errorf("error should mention dir: prefix, got: %v", err)
 	}
@@ -632,6 +679,7 @@ func TestParseRoutes_EmptyPath(t *testing.T) {
 	if err == nil {
 		t.Error("expected error for empty path")
 	}
+	requireProblem(t, err, errs.CategoryValidation, errs.SubtypeInvalidArgument, "--route")
 }
 
 func TestParseRoutes_RejectsAbsolutePath(t *testing.T) {
@@ -639,6 +687,7 @@ func TestParseRoutes_RejectsAbsolutePath(t *testing.T) {
 	if err == nil {
 		t.Error("expected error for absolute path in route")
 	}
+	requireProblem(t, err, errs.CategoryValidation, errs.SubtypeInvalidArgument, "--route")
 }
 
 func TestParseRoutes_RejectsTraversal(t *testing.T) {
@@ -646,6 +695,7 @@ func TestParseRoutes_RejectsTraversal(t *testing.T) {
 	if err == nil {
 		t.Error("expected error for path traversal in route")
 	}
+	requireProblem(t, err, errs.CategoryValidation, errs.SubtypeInvalidArgument, "--route")
 }
 
 func TestParseRoutes_PathSafety(t *testing.T) {

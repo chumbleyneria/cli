@@ -19,6 +19,7 @@ var migratedCommonHelperPaths = []string{
 	"shortcuts/drive/",
 	"shortcuts/mail/",
 	"shortcuts/calendar/",
+	"shortcuts/event/",
 }
 
 const commonImportPath = "github.com/larksuite/cli/shortcuts/common"
