@@ -5,7 +5,6 @@ package contact
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -13,6 +12,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/larksuite/cli/errs"
 	"github.com/larksuite/cli/internal/output"
 	"github.com/larksuite/cli/shortcuts/common"
 	larkcore "github.com/larksuite/oapi-sdk-go/v3/core"
@@ -48,6 +48,11 @@ type fanoutResult struct {
 	HasMore bool
 	ErrMsg  string // empty = success
 	ErrCode int    // 0 = success or unknown; otherwise an HTTP status or Lark API code corresponding to the first error
+	ErrCat  errs.Category
+	ErrSub  errs.Subtype
+	ErrHint string
+	ErrLog  string
+	ErrTry  bool
 }
 
 // isFanoutSummaryFormat gates the per-fanout stderr summary line. Includes csv
@@ -82,36 +87,58 @@ func runOneQuery(ctx context.Context, runtime *common.RuntimeContext, index int,
 		QueryParams: larkcore.QueryParams{"page_size": []string{strconv.Itoa(runtime.Int("page-size"))}},
 	})
 	if err != nil {
-		return fanoutResult{Index: index, Query: query, ErrMsg: err.Error()}
-	}
-	if apiResp.StatusCode != http.StatusOK {
-		body := strings.TrimSpace(string(apiResp.RawBody))
-		const maxBody = 200
-		if len(body) > maxBody {
-			body = body[:maxBody] + "..."
-		}
-		msg := fmt.Sprintf("HTTP %d %s", apiResp.StatusCode, http.StatusText(apiResp.StatusCode))
-		if body != "" {
-			msg = fmt.Sprintf("%s: %s", msg, body)
-		}
-		return fanoutResult{Index: index, Query: query,
-			ErrMsg:  msg,
-			ErrCode: apiResp.StatusCode}
+		return fanoutErrorResult(index, query, err)
 	}
 
-	var resp searchUserAPIEnvelope
-	if err := json.Unmarshal(apiResp.RawBody, &resp); err != nil {
-		return fanoutResult{Index: index, Query: query,
-			ErrMsg: fmt.Sprintf("parse response failed: %v", err)}
+	data, err := runtime.ClassifyAPIResponse(apiResp)
+	if err != nil {
+		return fanoutErrorResult(index, query, err)
 	}
-	if resp.Code != 0 {
-		return fanoutResult{Index: index, Query: query,
-			ErrMsg:  fmt.Sprintf("API %d: %s", resp.Code, resp.Msg),
-			ErrCode: resp.Code}
+	respData, err := decodeSearchUserAPIData(data)
+	if err != nil {
+		return fanoutErrorResult(index, query, err)
 	}
 
-	users, hasMore := projectUsers(resp.Data, runtime.Str("lang"), runtime.Config.Brand)
+	users, hasMore := projectUsers(respData, runtime.Str("lang"), runtime.Config.Brand)
 	return fanoutResult{Index: index, Query: query, Users: users, HasMore: hasMore}
+}
+
+func fanoutErrorResult(index int, query string, err error) fanoutResult {
+	out := fanoutResult{Index: index, Query: query, ErrMsg: err.Error()}
+	if p, ok := errs.ProblemOf(err); ok {
+		out.ErrCode = p.Code
+		out.ErrCat = p.Category
+		out.ErrSub = p.Subtype
+		out.ErrHint = p.Hint
+		out.ErrLog = p.LogID
+		out.ErrTry = p.Retryable
+		out.ErrMsg = fanoutProblemMessage(p)
+	}
+	return out
+}
+
+func fanoutProblemMessage(p *errs.Problem) string {
+	if p.Code >= 100 && p.Code < 600 {
+		prefix := fmt.Sprintf("HTTP %d:", p.Code)
+		body := strings.TrimSpace(strings.TrimPrefix(p.Message, prefix))
+		msg := fmt.Sprintf("HTTP %d %s", p.Code, http.StatusText(p.Code))
+		if body != "" {
+			msg = fmt.Sprintf("%s: %s", msg, truncateFanoutError(body, 200))
+		}
+		return msg
+	}
+	if p.Code != 0 {
+		return fmt.Sprintf("API %d: %s", p.Code, p.Message)
+	}
+	return p.Message
+}
+
+func truncateFanoutError(s string, maxRunes int) string {
+	r := []rune(s)
+	if len(r) <= maxRunes {
+		return s
+	}
+	return string(r[:maxRunes]) + "..."
 }
 
 type fanoutUser struct {
@@ -173,16 +200,152 @@ func buildFanoutResponse(queries []string, results []fanoutResult) (*fanoutRespo
 		// ErrCode; transport, parse, panic, and ctx-canceled stay at 0. Code 0
 		// means success in the Lark protocol, so don't pretend it's an API error
 		// when we have nothing structured to report.
-		if firstErrCode != 0 {
-			return nil, output.ErrAPI(firstErrCode, msg, "")
+		first := indexed[0]
+		for _, r := range indexed {
+			if r.ErrMsg != "" {
+				first = r
+				break
+			}
+		}
+		if firstErrCode != 0 || first.ErrCat != "" {
+			return nil, fanoutAllFailedError(first, msg)
 		}
 		// No structured API code — the failure was transport, parse, panic, or
 		// cancellation. Suggest the actionable next step rather than shipping
 		// an empty hint that would leave the calling agent with nothing to do.
-		return nil, output.ErrWithHint(output.ExitInternal, "fanout", msg,
+		return nil, errs.NewInternalError(errs.SubtypeUnknown, "%s", msg).WithHint(
 			"retry the command; if it persists, narrow --queries to a single term to isolate the failing input")
 	}
 	return out, nil
+}
+
+func fanoutAllFailedError(first fanoutResult, msg string) error {
+	subtype := first.ErrSub
+	if subtype == "" {
+		subtype = errs.SubtypeUnknown
+	}
+	switch first.ErrCat {
+	case errs.CategoryAuthentication:
+		e := errs.NewAuthenticationError(subtype, "%s", msg)
+		if first.ErrCode != 0 {
+			e = e.WithCode(first.ErrCode)
+		}
+		if first.ErrLog != "" {
+			e = e.WithLogID(first.ErrLog)
+		}
+		if first.ErrHint != "" {
+			e = e.WithHint("%s", first.ErrHint)
+		}
+		if first.ErrTry {
+			e = e.WithRetryable()
+		}
+		return e
+	case errs.CategoryAuthorization:
+		e := errs.NewPermissionError(subtype, "%s", msg)
+		if first.ErrCode != 0 {
+			e = e.WithCode(first.ErrCode)
+		}
+		if first.ErrLog != "" {
+			e = e.WithLogID(first.ErrLog)
+		}
+		if first.ErrHint != "" {
+			e = e.WithHint("%s", first.ErrHint)
+		}
+		if first.ErrTry {
+			e = e.WithRetryable()
+		}
+		return e
+	case errs.CategoryConfig:
+		e := errs.NewConfigError(subtype, "%s", msg)
+		if first.ErrCode != 0 {
+			e = e.WithCode(first.ErrCode)
+		}
+		if first.ErrLog != "" {
+			e = e.WithLogID(first.ErrLog)
+		}
+		if first.ErrHint != "" {
+			e = e.WithHint("%s", first.ErrHint)
+		}
+		if first.ErrTry {
+			e = e.WithRetryable()
+		}
+		return e
+	case errs.CategoryNetwork:
+		e := errs.NewNetworkError(subtype, "%s", msg)
+		if first.ErrCode != 0 {
+			e = e.WithCode(first.ErrCode)
+		}
+		if first.ErrLog != "" {
+			e = e.WithLogID(first.ErrLog)
+		}
+		if first.ErrHint != "" {
+			e = e.WithHint("%s", first.ErrHint)
+		}
+		if first.ErrTry {
+			e = e.WithRetryable()
+		}
+		return e
+	case errs.CategoryValidation:
+		e := errs.NewValidationError(subtype, "%s", msg)
+		if first.ErrCode != 0 {
+			e = e.WithCode(first.ErrCode)
+		}
+		if first.ErrLog != "" {
+			e = e.WithLogID(first.ErrLog)
+		}
+		if first.ErrHint != "" {
+			e = e.WithHint("%s", first.ErrHint)
+		}
+		if first.ErrTry {
+			e = e.WithRetryable()
+		}
+		return e
+	case errs.CategoryPolicy:
+		e := errs.NewSecurityPolicyError(subtype, "%s", msg)
+		if first.ErrCode != 0 {
+			e = e.WithCode(first.ErrCode)
+		}
+		if first.ErrLog != "" {
+			e = e.WithLogID(first.ErrLog)
+		}
+		if first.ErrHint != "" {
+			e = e.WithHint("%s", first.ErrHint)
+		}
+		if first.ErrTry {
+			e = e.WithRetryable()
+		}
+		return e
+	case errs.CategoryInternal:
+		e := errs.NewInternalError(subtype, "%s", msg)
+		if first.ErrCode != 0 {
+			e = e.WithCode(first.ErrCode)
+		}
+		if first.ErrLog != "" {
+			e = e.WithLogID(first.ErrLog)
+		}
+		if first.ErrHint != "" {
+			e = e.WithHint("%s", first.ErrHint)
+		}
+		if first.ErrTry {
+			e = e.WithRetryable()
+		}
+		return e
+	default:
+		e := errs.NewAPIError(subtype, "%s", msg)
+		if first.ErrCode != 0 {
+			e = e.WithCode(first.ErrCode)
+		}
+		if first.ErrLog != "" {
+			e = e.WithLogID(first.ErrLog)
+		}
+		if first.ErrHint != "" {
+			e = e.WithHint("%s", first.ErrHint)
+		}
+		if first.ErrTry {
+			e = e.WithRetryable()
+		}
+		return e
+	}
 }
 
 func executeSearchUserFanout(ctx context.Context, runtime *common.RuntimeContext) error {

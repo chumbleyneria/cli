@@ -16,6 +16,7 @@ import (
 // common replacements or construct an errs.* typed error directly.
 var migratedCommonHelperPaths = []string{
 	"shortcuts/base/",
+	"shortcuts/contact/",
 	"shortcuts/drive/",
 	"shortcuts/mail/",
 	"shortcuts/calendar/",

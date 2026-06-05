@@ -7,7 +7,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -16,10 +15,10 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/larksuite/cli/errs"
 	"github.com/larksuite/cli/internal/cmdutil"
 	"github.com/larksuite/cli/internal/core"
 	"github.com/larksuite/cli/internal/httpmock"
-	"github.com/larksuite/cli/internal/output"
 	"github.com/larksuite/cli/shortcuts/common"
 	"github.com/spf13/cobra"
 )
@@ -1136,7 +1135,7 @@ func TestFanoutAssemble_AllFailed_ReturnsError(t *testing.T) {
 }
 
 // When all queries fail with no structured Lark API code (transport, parse,
-// panic, ctx-canceled), the returned ExitError must carry an actionable
+// panic, ctx-canceled), the returned typed error must carry an actionable
 // hint so the calling agent has a next step to try instead of giving up.
 func TestFanoutAssemble_AllFailed_NoCode_HasActionableHint(t *testing.T) {
 	results := []fanoutResult{
@@ -1147,23 +1146,23 @@ func TestFanoutAssemble_AllFailed_NoCode_HasActionableHint(t *testing.T) {
 	if err == nil {
 		t.Fatalf("expected error when all queries failed")
 	}
-	var exitErr *output.ExitError
-	if !errors.As(err, &exitErr) {
-		t.Fatalf("expected *output.ExitError, got %T", err)
+	p, ok := errs.ProblemOf(err)
+	if !ok {
+		t.Fatalf("expected typed problem, got %T", err)
 	}
-	if exitErr.Detail == nil {
-		t.Fatalf("expected Detail, got nil")
+	if p.Category != errs.CategoryInternal {
+		t.Fatalf("category: got %q, want %q", p.Category, errs.CategoryInternal)
 	}
-	if exitErr.Detail.Hint == "" {
+	if p.Hint == "" {
 		t.Errorf("expected non-empty Hint so agents have a next step; got empty")
 	}
-	if !strings.Contains(exitErr.Detail.Hint, "retry") {
-		t.Errorf("hint should suggest retry as the first action; got %q", exitErr.Detail.Hint)
+	if !strings.Contains(p.Hint, "retry") {
+		t.Errorf("hint should suggest retry as the first action; got %q", p.Hint)
 	}
 }
 
-// Codes from the first failure must propagate through output.ErrAPI so the
-// CLI's exit-code classifier sees the real signal (e.g., 99991663 rate limit)
+// Codes from the first failure must propagate through typed problem fields so
+// the CLI's exit-code classifier sees the real signal (e.g., 99991663 rate limit)
 // instead of 0, which would mean "success" in the Lark protocol.
 func TestFanoutAssemble_AllFailed_PropagatesFirstCode(t *testing.T) {
 	results := []fanoutResult{
@@ -1176,6 +1175,13 @@ func TestFanoutAssemble_AllFailed_PropagatesFirstCode(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "rate limit") {
 		t.Errorf("error should contain first ErrMsg; got %v", err)
+	}
+	p, ok := errs.ProblemOf(err)
+	if !ok {
+		t.Fatalf("expected typed problem, got %T", err)
+	}
+	if p.Code != 99991663 {
+		t.Errorf("problem code: got %d, want 99991663", p.Code)
 	}
 }
 
